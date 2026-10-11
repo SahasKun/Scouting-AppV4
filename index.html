@@ -18,7 +18,7 @@ header{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px so
 #who{font-size:.85rem;color:var(--mute)}#who button{background:none;border:0;color:var(--ok);font-size:1rem;cursor:pointer}
 nav{display:flex}nav button{flex:1;background:none;border:0;border-bottom:3px solid transparent;color:var(--mute);font-size:1.15rem;padding:8px 0;cursor:pointer}
 nav button.on{color:var(--text);border-color:var(--ok)}
-main{max-width:680px;margin:0 auto;padding:12px 12px 120px}
+main{max-width:960px;margin:0 auto;padding:12px 12px 120px}
 section{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px;margin-bottom:12px}
 h2{margin:0 0 8px;font-size:1.3rem}
 label{display:block;color:var(--mute);font-size:.85rem;margin:8px 0 2px}
@@ -52,6 +52,16 @@ tr[data-team]{cursor:pointer}
 .gbtn{display:flex;align-items:center;gap:12px;background:#fff;color:#1f1f1f;border:1px solid #dadce0;border-radius:999px;padding:12px 22px;font:500 1.05rem Barlow,system-ui,sans-serif;cursor:pointer;margin-top:10px}
 .gbtn:hover{background:#f6f8fb}
 .login small{color:var(--red);max-width:34ch}
+main>section{max-width:680px;margin-left:auto;margin-right:auto}
+.top input:disabled{opacity:.7}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px;margin:0 auto 12px}
+.cards section{margin:0}
+.brow{display:grid;grid-template-columns:52px 1fr 120px;gap:8px;align-items:center;margin:6px 0;cursor:pointer}
+.track{display:flex;height:18px;background:var(--bg);border-radius:9px;overflow:hidden}.track i{display:block;height:100%}
+.brow span{text-align:right;font-size:.9rem}
+.cols{display:flex;gap:8px;align-items:flex-end;overflow-x:auto;padding-bottom:6px;min-height:160px}
+.col{display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:4px;min-width:36px}
+.stack{display:flex;flex-direction:column;width:28px;border-radius:4px;overflow:hidden}
 :focus-visible{outline:3px solid var(--ok);outline-offset:2px}
 </style>
 </head>
@@ -78,24 +88,24 @@ const toast=m=>{const t=document.createElement('div');t.className='toast';t.text
 const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0;
 
 const ready=!!C.firebase.apiKey;
-let auth,db,user=null,tab='scout',evKey=(C.event||localStorage.getItem('fs.event')||'').toLowerCase(),unsubs=[],dbErr='',evLoaded=false,evExists=false;
+let auth,db,user=null,tab='scout',evKey='',unsubs=[],unsubActive=null,dbErr='',evLoaded=false,evExists=false,denied=false;
 let ev={matches:[],roster:[],assign:{}},reps={},pick={m:'',team:''},teamSel=null,adminM='',s=newSess();
 if(ready){auth=getAuth(initializeApp(C.firebase));db=initializeFirestore(auth.app,{localCache:persistentLocalCache()})}
 
 function newSess(){return{m:'',team:'',alliance:'',step:0,start:'',aF:0,aClimb:false,tF:0,hang:'none',r:{},c:{}}}
 const autoPts=r=>r.aF*C.pts.fuel+(r.aClimb?C.pts.autoClimb:0);
 const telePts=r=>r.tF*C.pts.fuel+(C.pts.hang[r.hang]||0);
-const isAdmin=()=>!C.admins.length||C.admins.includes(user.email);
+const isAdmin=()=>!!user&&C.admins.some(a=>a.toLowerCase()===(user.email||'').toLowerCase());
 const me=()=>{const e=ev.roster.find(r=>(r.email||'').toLowerCase()===(user.email||'').toLowerCase());return e?e.name:user.displayName};
 const matchOf=n=>ev.matches.find(m=>String(m.n)===String(n));
 const allyOf=(m,t)=>{const x=matchOf(m);return x?(x.red.includes(+t)?'red':'blue'):''};
 
 const explain=x=>x.code==='permission-denied'?'Firestore rules are blocking access. In Firebase open Firestore Database, then Rules, paste the rules from the setup steps and click Publish.':(['unavailable','failed-precondition','not-found'].includes(x.code)?'Cannot reach the database. Check that Firestore Database is created in this Firebase project and that you are online.':(x.code||x.message));
-const dbFail=x=>{dbErr=explain(x);console.error(x);render()};
+const dbFail=x=>{console.error(x);if(x.code==='permission-denied'&&user&&!isAdmin())denied=true;else dbErr=explain(x);render()};
 const put=(data,msg)=>{const t=setTimeout(()=>toast('Still saving. Check your internet and Firestore setup.'),8000);
   return setDoc(doc(db,'events',evKey),data,{merge:true}).then(()=>{clearTimeout(t);dbErr='';toast(msg)},x=>{clearTimeout(t);dbFail(x)})};
 function watch(){
-  unsubs.forEach(u=>u());unsubs=[];ev={matches:[],roster:[],assign:{}};reps={};dbErr='';evLoaded=false;evExists=false;
+  unsubs.forEach(u=>u());unsubs=[];ev={matches:[],roster:[],assign:{}};reps={};dbErr='';evLoaded=false;evExists=false;denied=false;
   if(!user||!evKey)return render();
   unsubs.push(onSnapshot(doc(db,'events',evKey),d=>{evLoaded=true;evExists=d.exists();dbErr='';ev={matches:[],roster:[],assign:{},...d.data()};safeRender()},dbFail));
   unsubs.push(onSnapshot(collection(db,'events',evKey,'reports'),q=>{reps={};q.forEach(d=>reps[d.id]=d.data());safeRender()},dbFail));
@@ -108,21 +118,26 @@ function safeRender(){
 
 /* ---------- views ---------- */
 function render(){
-  $('#ek').hidden=!user;$('#ek').value=evKey;
+  $('#ek').hidden=!user;$('#ek').value=evKey;$('#ek').disabled=!(user&&isAdmin());
   $('#who').innerHTML=user?`${esc(user.displayName)} <button data-out>Sign out</button>`:'';
   const app=$('#app');
-  $('header').hidden=!user;
+  $('header').hidden=!user||denied;
   if(!user){app.innerHTML=loginPage();return}
+  if(denied){app.innerHTML=deniedPage();return}
   const tabs=[['scout','Scout'],['reports','Reports'],...(isAdmin()?[['admin','Admin']]:[])];
   $('#nav').innerHTML=tabs.map(([k,l])=>`<button data-tab="${k}" class="${tab===k?'on':''}">${l}</button>`).join('');
   const banner=dbErr?`<section style="border-color:var(--red)"><b>Database problem:</b> ${esc(dbErr)}</section>`:'';
-  app.innerHTML=banner+(!evKey?'<section>Enter an event key above, for example <b>2026cahan</b>.</section>':{scout:scoutView,reports:reportsView,admin:adminView}[tab]());
+  app.innerHTML=banner+(!evKey?(isAdmin()?'<section>Type the event key in the box above to start an event for everyone.</section>':'<section>No event is active yet. Ask a lead scout to set it.</section>'):{scout:scoutView,reports:reportsView,admin:adminView}[tab]());
 }
 
 function loginPage(){
   return `<div class="login"><h1>FRC Scout</h1><p>Sign in with your team Google account to see your assigned matches.</p>
   <button class="gbtn" id="in"><svg width="20" height="20" viewBox="0 0 48 48" aria-hidden="true"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>Sign in with Google</button>
   ${ready?'':'<small>Setup needed: add your Firebase settings to the SETTINGS block in index.html, then reload.</small>'}</div>`;
+}
+
+function deniedPage(){
+  return `<div class="login"><h1>Not on the roster</h1><p>${esc(user.email)} is not on the roster for this event. Ask a lead scout to add this email, then sign in again.</p><button class="gbtn" data-out>Sign out</button></div>`;
 }
 
 function pickView(){
@@ -142,26 +157,22 @@ function pickView(){
 }
 
 function ptsHtml(){return `<span>Auto <b>${autoPts(s)}</b></span><span>Teleop <b>${telePts(s)}</b></span><span>Total <b>${autoPts(s)+telePts(s)}</b></span>`}
-function fuelPad(key,label){return `<section><h2>${label}</h2><div class="num big" id="n">${s[key]}</div><div class="fuel">${[[-1,'−1'],[1,'+1'],[5,'+5'],[10,'+10']].map(([d,l])=>`<button data-f="${key}" data-d="${d}">${l}</button>`).join('')}</div></section>`}
+function fuelPad(key){return `<div class="num big" id="n-${key}">${s[key]}</div><div class="fuel">${[[-1,'−1'],[1,'+1'],[5,'+5'],[10,'+10']].map(([d,l])=>`<button data-f="${key}" data-d="${d}">${l}</button>`).join('')}</div>`}
+const segBtns=(attr,items,cur)=>items.map(([v,l])=>`<button data-${attr}="${v}" class="${cur===v?'on':''}">${l}</button>`).join('');
 
 function scoutView(){
   if(!s.team)return pickView();
-  const head=`<section><div class="seg" style="margin-bottom:10px">${STEPS.map((x,i)=>`<button data-step="${i}" class="${s.step===i?'on':''}">${x}</button>`).join('')}</div>
-    <span class="chip" style="background:var(--${s.alliance||'mute'})"></span><b>Q${esc(s.m)}, team ${esc(s.team)}</b> <button class="btn ghost" style="float:right;padding:4px 10px" data-cancel>Change</button></section>`;
-  let body='';
-  if(s.step===0)body=`<section><h2>Starting position</h2><div class="seg">${C.starts.map(p=>`<button data-start="${p}" class="${s.start===p?'on':''}">${p}</button>`).join('')}</div></section>`;
-  if(s.step===1)body=fuelPad('aF','Auto fuel scored')+`<section><button class="tog ${s.aClimb?'on':''}" data-aclimb>Climbed in auto (${C.pts.autoClimb} pts)</button></section>`;
-  if(s.step===2)body=fuelPad('tF','Teleop fuel scored');
-  if(s.step===3)body=`<section><h2>Hang</h2><div class="seg">${HANGS.map(([v,l])=>`<button data-hang="${v}" class="${s.hang===v?'on':''}">${l}</button>`).join('')}</div></section>`;
-  if(s.step===4)body=`<section><h2>Match summary</h2><table>
-    <tr><td>Start</td><td>${esc(s.start)||'not set'}</td></tr><tr><td>Auto fuel</td><td>${s.aF}${s.aClimb?' + auto climb':''}</td></tr>
-    <tr><td>Teleop fuel</td><td>${s.tF}</td></tr><tr><td>Hang</td><td>${HANGS.find(h=>h[0]===s.hang)[1]}</td></tr>
-    <tr><td>Auto / teleop / total</td><td>${autoPts(s)} / ${telePts(s)} / ${autoPts(s)+telePts(s)}</td></tr></table></section>
+  return `<section><span class="chip" style="background:var(--${s.alliance||'mute'})"></span><b>Q${esc(s.m)}, team ${esc(s.team)}</b> <button class="btn ghost" style="float:right;padding:4px 10px" data-cancel>Change</button></section>
+  <div class="cards">
+    <section><h2>Starting position</h2><div class="seg">${segBtns('start',C.starts.map(p=>[p,p]),s.start)}</div></section>
+    <section><h2>Auto fuel</h2>${fuelPad('aF')}<button class="tog ${s.aClimb?'on':''}" data-aclimb>Climbed in auto (${C.pts.autoClimb} pts)</button></section>
+    <section><h2>Teleop fuel</h2>${fuelPad('tF')}</section>
+    <section><h2>Endgame hang</h2><div class="seg">${segBtns('hang',HANGS,s.hang)}</div></section>
     <section><h2>Team rating (1 to 5)</h2>${RATE.map(k=>`<div class="rate"><span>${k}</span><div class="seg">${[1,2,3,4,5].map(n=>`<button data-r="${k}" data-v="${n}" class="${s.r[k]===n?'on':''}">${n}</button>`).join('')}</div></div>`).join('')}</section>
     <section><h2>Comments</h2><label for="c1">What they do well</label><textarea id="c1" data-c="good" rows="3">${esc(s.c.good)}</textarea>
-    <label for="c2">Problems or other notes</label><textarea id="c2" data-c="bad" rows="3">${esc(s.c.bad)}</textarea></section>`;
-  const next=s.step===4?'<button class="btn" data-submit>Submit</button>':'<button class="btn" data-next>Next</button>';
-  return head+body+`<div class="bar"><div id="pts" style="display:flex;gap:12px">${ptsHtml()}</div>${next}</div>`;
+    <label for="c2">Problems or other notes</label><textarea id="c2" data-c="bad" rows="3">${esc(s.c.bad)}</textarea></section>
+  </div>
+  <div class="bar"><div id="pts" style="display:flex;gap:12px">${ptsHtml()}</div><button class="btn" data-submit>Submit</button></div>`;
 }
 
 function teamStats(){
@@ -172,11 +183,16 @@ function teamStats(){
 }
 function reportsView(){
   const st=teamStats();if(!st.length)return '<section>No reports yet for this event.</section>';
-  const sel=st.find(x=>String(x.team)===String(teamSel));
-  return `<section><h2>Team summary</h2><div class="scroll"><table><tr><th>Team</th><th>Matches</th><th>Avg auto</th><th>Avg teleop</th><th>Hang %</th>${RATE.map(k=>`<th>${k}</th>`).join('')}</tr>
+  const sel=st.find(x=>String(x.team)===String(teamSel)),max=Math.max(...st.map(x=>x.a+x.t),1),tot=r=>autoPts(r)+telePts(r);
+  const chart=`<section><h2>Average points by team</h2>${st.map(x=>`<div class="brow" data-team="${x.team}"><b>${x.team}</b><div class="track"><i style="width:${x.a/max*100}%;background:var(--blue)"></i><i style="width:${x.t/max*100}%;background:var(--ok)"></i></div><span>${(x.a+x.t).toFixed(1)} <small style="color:var(--mute)">(${x.n} games)</small></span></div>`).join('')}
+    <small style="color:var(--mute)">Blue is auto, yellow is teleop. Tap a team to see each of its games.</small></section>`;
+  const table=`<section><h2>Team summary</h2><div class="scroll"><table><tr><th>Team</th><th>Games</th><th>Avg auto</th><th>Avg teleop</th><th>Hang %</th>${RATE.map(k=>`<th>${k}</th>`).join('')}</tr>
     ${st.map(x=>`<tr data-team="${x.team}"><td><b>${x.team}</b></td><td>${x.n}</td><td>${x.a.toFixed(1)}</td><td>${x.t.toFixed(1)}</td><td>${x.hang}%</td>${x.rt.map(v=>`<td>${v?v.toFixed(1):'-'}</td>`).join('')}</tr>`).join('')}</table></div>
-    <button class="btn ghost w" data-csv>Download CSV</button></section>
-    ${sel?`<section><h2>Comments on team ${sel.team}</h2>${sel.rs.sort((a,b)=>a.m-b.m).map(r=>`<div class="cmt"><small>Q${r.m}, ${esc(r.scout)}, start ${esc(r.start)||'?'}</small><br>${r.c?.good?'<b>Good:</b> '+esc(r.c.good)+'<br>':''}${r.c?.bad?'<b>Problems:</b> '+esc(r.c.bad):''}</div>`).join('')}</section>`:'<small style="color:var(--mute)">Tap a team to read its comments.</small>'}`;
+    <button class="btn ghost w" data-csv>Download CSV</button></section>`;
+  if(!sel)return chart+table;
+  const rs=[...sel.rs].sort((a,b)=>a.m-b.m),mx=Math.max(...rs.map(tot),1);
+  return chart+`<section id="games"><h2>Team ${sel.team}, points by game</h2><div class="cols">${rs.map(r=>`<div class="col"><span>${tot(r)}</span><div class="stack" style="height:${Math.max(tot(r)/mx*120,3)}px"><i style="flex:${telePts(r)||0.001};background:var(--ok)"></i><i style="flex:${autoPts(r)||0.001};background:var(--blue)"></i></div><small>Q${r.m}</small></div>`).join('')}</div></section>
+  <section><h2>Comments on team ${sel.team}</h2>${rs.map(r=>`<div class="cmt"><small>Q${r.m}, ${esc(r.scout)}, start ${esc(r.start)||'?'}</small><br>${r.c?.good?'<b>Good:</b> '+esc(r.c.good)+'<br>':''}${r.c?.bad?'<b>Problems:</b> '+esc(r.c.bad):''}</div>`).join('')}</section>`+table;
 }
 
 function adminView(){
@@ -224,30 +240,27 @@ function submit(){
 }
 
 document.addEventListener('click',e=>{
-  const row=e.target.closest('tr[data-team]');if(row){teamSel=row.dataset.team;return render()}
+  const row=e.target.closest('[data-team]');if(row){teamSel=row.dataset.team;render();$('#games')?.scrollIntoView({behavior:'smooth'});return}
   const b=e.target.closest('button');if(!b)return;const d=b.dataset;
   if(b.id==='in'){if(!ready)toast('Add your Firebase settings first');else signInWithPopup(auth,new GoogleAuthProvider()).catch(x=>toast(x.code==='auth/unauthorized-domain'?`Add "${location.hostname||'(none: open via Live Server, not the file)'}" to Firebase Authorized domains`:x.message))}
   else if('out' in d)signOut(auth);
   else if(d.tab){tab=d.tab;render()}
   else if('begin' in d){if(!isAdmin()&&ev.assign[pick.m+'_'+pick.team]!==me())return toast('That match is not assigned to you');s=newSess();s.m=pick.m;s.team=pick.team;s.alliance=allyOf(pick.m,pick.team);render()}
   else if('cancel' in d){if(confirm('Discard this match?')){s=newSess();render()}}
-  else if(d.step){s.step=+d.step;render()}
-  else if('next' in d){s.step++;render();window.scrollTo(0,0)}
-  else if(d.start){s.start=d.start;s.step=1;render()}
-  else if(d.f){s[d.f]=Math.max(0,s[d.f]+ +d.d);$('#n').textContent=s[d.f];$('#pts').innerHTML=ptsHtml()}
-  else if('aclimb' in d){s.aClimb=!s.aClimb;render()}
-  else if(d.hang){s.hang=d.hang;render()}
-  else if(d.r){s.r[d.r]=+d.v;render()}
+  else if(d.start||d.hang||d.r){if(d.start)s.start=d.start;if(d.hang)s.hang=d.hang;if(d.r)s.r[d.r]=+d.v;
+    b.parentElement.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));$('#pts').innerHTML=ptsHtml()}
+  else if(d.f){s[d.f]=Math.max(0,s[d.f]+ +d.d);$('#n-'+d.f).textContent=s[d.f];$('#pts').innerHTML=ptsHtml()}
+  else if('aclimb' in d){s.aClimb=!s.aClimb;b.classList.toggle('on',s.aClimb);$('#pts').innerHTML=ptsHtml()}
   else if('submit' in d)submit();
   else if('tba' in d)tba();
   else if('roster' in d){const roster=$('#ro').value.split('\n').map(l=>l.trim()).filter(Boolean).map(l=>{const[n,m]=l.split(',').map(x=>x.trim());return m?{name:n,email:m}:{name:n}});
-    put({roster},'Roster saved')}
+    put({roster,emails:roster.map(r=>(r.email||'').toLowerCase()).filter(Boolean)},'Roster saved')}
   else if('auto' in d)autoAssign();
   else if('csv' in d)csv();
 });
 document.addEventListener('change',e=>{
   const t=e.target;
-  if(t.id==='ek'){evKey=t.value.trim().toLowerCase();localStorage.setItem('fs.event',evKey);watch()}
+  if(t.id==='ek'){if(!isAdmin())return;setDoc(doc(db,'app','active'),{event:t.value.trim().toLowerCase()}).then(()=>toast('Event set for everyone'),dbFail)}
   else if(t.id==='asg'&&t.value){const[m,tm]=t.value.split('|');pick={m,team:tm};render()}
   else if(t.id==='sm'){pick={m:t.value,team:''};render()}
   else if(t.id==='st'){pick.team=t.value;render()}
@@ -256,7 +269,11 @@ document.addEventListener('change',e=>{
 });
 document.addEventListener('input',e=>{if(e.target.dataset.c)s.c[e.target.dataset.c]=e.target.value});
 
-if(ready)onAuthStateChanged(auth,u=>{user=u;watch()});else render();
+if(ready)onAuthStateChanged(auth,u=>{
+  user=u;if(unsubActive)unsubActive();unsubActive=null;denied=false;evKey='';
+  if(!u)return watch();
+  unsubActive=onSnapshot(doc(db,'app','active'),d=>{const k=(d.data()?.event||'').toLowerCase();if(k!==evKey){evKey=k;watch()}else render()},dbFail);
+});else render();
 </script>
 </body>
 </html>
